@@ -1,0 +1,85 @@
+PROJECT ROOT /
+├── .Rproj.user/
+├── .venv/ ## VSCode will build this from the requirements only for projects using python
+├── data/
+│   ├── processed/
+│   └── raw/
+├── documents/ ## Reference documents, stored files
+├── output/
+├── scripts/  ## All code goes here - Any templates, .R, .py .ipynb
+├── .gitignore ## Standard ignore file already covers many basic - Only provide project specific ignores
+├── Claude.md ## Also acts as README. Always update this
+├── notion_SPECIFIC_token ## Optional Notion token to a specific data based only for projects that need one
+├── ProjectName_R.Rproj ## Will be renamed to project root
+├── ProjectName_VSCode.code-workspace ## Will be remained to project root
+└── requirements.txt ## If project is using python - Write all requirements for venv
+
+
+
+
+Basic gitignore contains:
+# ---- Project Specific Ignores ----
+
+# ---- Generated outputs ----
+# All artifacts under output/ are regenerable from the notebooks + APIs.
+# Flip the leading / off if you want to version them (e.g. for archival).
+output/
+data/
+
+# Excel atomic-save temp files
+*.tmp.xlsx
+*.tmp.xls
+
+# ---- Credentials — never commit ----
+*.key
+*.pem
+*_key.txt
+*_secret*
+.env
+.env.*
+!.env.example
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+*.egg-info/
+
+# ---- Jupyter ----
+# Keep notebooks, but strip large outputs before committing (see nbstripout).
+.jupyter/
+profile_default/
+
+# ---- R ----
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+*.Rproj
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ---- Editors ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ---- Logs / caches ----
+*.log
+logs/
+.cache/

@@ -1,0 +1,68 @@
+# ---- Project Specific Ignores ----
+notion_habit_tracker_token.txt
+notion_tasks_token.txt
+notion_token.txt
+# ---- Generated outputs ----
+# All artifacts under output/ are regenerable from the notebooks + APIs.
+# Flip the leading / off if you want to version them (e.g. for archival).
+output/
+data/
+
+# Excel atomic-save temp files
+*.tmp.xlsx
+*.tmp.xls
+
+# ---- Credentials — never commit ----
+*.key
+*.pem
+*_key.txt
+*_secret*
+*_token*
+.env
+.env.*
+!.env.example
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+*.egg-info/
+
+# ---- Jupyter ----
+# Keep notebooks, but strip large outputs before committing (see nbstripout).
+.jupyter/
+profile_default/
+
+# ---- R ----
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+*.Rproj
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ---- Editors ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ---- Logs / caches ----
+*.log
+logs/
+.cache/
