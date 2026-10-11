@@ -3,6 +3,9 @@
 Fetches every day from the Notion database, applies each habit's own completion
 rule, and writes a self-contained static page. No secrets reach the page.
 
+Layout: a progress bar, a cumulative stats strip, then one row per habit with
+its stats and its own Oct/Nov/Dec calendars.
+
 Each habit has a rule, edit these freely:
   ("daily",  None)  -> must be done every day; streak counts in days.
   ("weekly", N)     -> N days within each Mon-Sun week; streak counts in weeks.
@@ -27,7 +30,7 @@ TIMEZONE = timezone(timedelta(hours=5, minutes=30))  # IST, fixed offset, no DST
 START = date(2026, 10, 1)
 END = date(2026, 12, 31)
 
-# name, color, priority (featured wide), rule
+# name, color, priority (starred), rule
 HABITS = [
     {"name": "Gym",       "color": "#ff6b4a", "priority": True,  "rule": ("weekly", 5)},
     {"name": "No Sugar",  "color": "#ffd23f", "priority": True,  "rule": ("weekly", 6)},
@@ -114,14 +117,7 @@ def longest_streak(done, elapsed):
 
 def daily_stats(days, name, elapsed, anchor):
     done = {day for day in elapsed if checked(days, day, name)}
-    return {
-        "type": "daily",
-        "current": current_streak(done, anchor),
-        "longest": longest_streak(done, elapsed),
-        "done": len(done),
-        "rate": round(100 * len(done) / len(elapsed)) if elapsed else 0,
-        "strip": [(day, day in done) for day in elapsed[-14:]],
-    }
+    return {"current": current_streak(done, anchor), "longest": longest_streak(done, elapsed)}
 
 
 def weekly_stats(days, name, target, today):
@@ -164,15 +160,12 @@ def weekly_stats(days, name, target, today):
     finished = [week for week in weeks if not week["current"]]
     days_left = max(0, (min(this["end"], END) - today).days) if this else 0
     return {
-        "type": "weekly",
-        "current": current,
-        "longest": best,
+        "current": current, "longest": best,
         "this_done": this["done"] if this else 0,
         "this_target": this["target"] if this else target,
         "days_left": days_left,
         "weeks_met": sum(1 for week in finished if week["status"] == "met"),
         "weeks_total": len(finished),
-        "recent": [week["status"] for week in weeks[-8:]],
     }
 
 
@@ -180,82 +173,69 @@ def habit_stats(days, elapsed, anchor, today):
     stats = []
     for habit in HABITS:
         kind, target = habit["rule"]
-        data = (daily_stats(days, habit["name"], elapsed, anchor) if kind == "daily"
-                else weekly_stats(days, habit["name"], target, today))
-        stats.append({**habit, **data})
+        done_total = sum(1 for day in elapsed if checked(days, day, habit["name"]))
+        extra = (daily_stats(days, habit["name"], elapsed, anchor) if kind == "daily"
+                 else weekly_stats(days, habit["name"], target, today))
+        stats.append({
+            **habit, **extra, "kind": kind,
+            "done_total": done_total,
+            "rate": round(100 * done_total / len(elapsed)) if elapsed else 0,
+        })
     return stats
 
 
-def count_color(count, total, is_future):
-    if is_future:
-        return "transparent"
-    if count == 0:
-        return "#1b2130"
-    shades = ["#14532d", "#166534", "#15803d", "#22c55e", "#4ade80"]
-    return shades[min(len(shades) - 1, round(count / total * (len(shades) - 1)))]
+def render_month(name, color, month, days, today):
+    first = date(2026, month, 1)
+    cells = ['<span class="mpad"></span>'] * first.weekday()
+    for number in range(1, calendar.monthrange(2026, month)[1] + 1):
+        day = date(2026, month, number)
+        future = day > today
+        classes = "mc" + (" today" if day == today else "") + (" future" if future else "")
+        background = color if checked(days, day, name) else ("transparent" if future else "#232a39")
+        cells.append(f'<span class="{classes}" style="background:{background}" title="{day.isoformat()}"></span>')
+    return (f'<div class="mcal"><div class="mlabel">{first:%b}</div>'
+            f'<div class="mgrid">{"".join(cells)}</div></div>')
 
 
-def render_calendar(days, today, total):
-    blocks = []
-    for month in (10, 11, 12):
-        first = date(2026, month, 1)
-        cells = ['<span class="pad"></span>'] * first.weekday()
-        for number in range(1, calendar.monthrange(2026, month)[1] + 1):
-            day = date(2026, month, number)
-            done = [habit["name"] for habit in HABITS if checked(days, day, habit["name"])]
-            is_future = day > today
-            classes = "cell" + (" today" if day == today else "") + (" future" if is_future else "")
-            tip = f"{day.isoformat()} · {', '.join(done) if done else 'none'}"
-            style = f"background:{count_color(len(done), total, is_future)}"
-            cells.append(f'<span class="{classes}" style="{style}" title="{html.escape(tip)}"></span>')
-        weekdays = "".join(f'<span class="wd">{d}</span>' for d in "MTWTFSS")
-        blocks.append(
-            f'<div class="month"><div class="mname">{first.strftime("%B")}</div>'
-            f'<div class="grid"><div class="wdrow">{weekdays}</div>{"".join(cells)}</div></div>'
-        )
-    return "".join(blocks)
-
-
-def card_shell(stat, inner):
-    tag = '<span class="tag">priority</span>' if stat["priority"] else ""
-    big = " big" if stat["priority"] else ""
-    return (f'<div class="card{big}" style="--c:{stat["color"]}">'
-            f'<div class="chead"><span class="cname">{stat["name"]}</span>{tag}</div>'
-            f'{inner}</div>')
-
-
-def render_daily(stat):
-    dots = "".join(
-        f'<span class="dot" style="background:{stat["color"] if done else "#232a39"}" '
-        f'title="{day.isoformat()}"></span>'
-        for day, done in stat["strip"]
-    )
-    inner = (f'<div class="streak">{stat["current"]}<span class="unit">day streak</span></div>'
-             f'<div class="sub"><span>Longest <b>{stat["longest"]}</b></span>'
-             f'<span>Done <b>{stat["done"]}</b></span>'
-             f'<span>Rate <b>{stat["rate"]}%</b></span></div>'
-             f'<div class="strip">{dots}</div>')
-    return card_shell(stat, inner)
-
-
-def render_weekly(stat):
-    boxes = []
-    for status in stat["recent"]:
-        if status == "met":
-            style = f"background:{stat['color']}"
-        elif status == "current":
-            style = "background:transparent;border:1px dashed #4a5568"
-        else:
-            style = "background:#2a3344"
-        boxes.append(f'<span class="wkbox" style="{style}"></span>')
-    this = f'{stat["this_done"]}/{stat["this_target"]}'
+def stats_block(stat):
+    if stat["kind"] == "daily":
+        return (f'<div class="hbig">{stat["current"]}<span class="u">day streak</span></div>'
+                f'<div class="hsub">Longest <b>{stat["longest"]}</b> · Done <b>{stat["done_total"]}</b>'
+                f' · Rate <b>{stat["rate"]}%</b></div>')
     left = f' · {stat["days_left"]}d left' if stat["days_left"] else ""
-    inner = (f'<div class="streak">{stat["current"]}<span class="unit">week streak</span></div>'
-             f'<div class="sub"><span>This week <b>{this}</b>{left}</span>'
-             f'<span>Longest <b>{stat["longest"]}w</b></span>'
-             f'<span>Weeks met <b>{stat["weeks_met"]}/{stat["weeks_total"]}</b></span></div>'
-             f'<div class="strip">{"".join(boxes)}</div>')
-    return card_shell(stat, inner)
+    return (f'<div class="hbig">{stat["current"]}<span class="u">week streak</span></div>'
+            f'<div class="hsub">This week <b>{stat["this_done"]}/{stat["this_target"]}</b>{left}<br>'
+            f'Longest <b>{stat["longest"]}w</b> · Met <b>{stat["weeks_met"]}/{stat["weeks_total"]}</b>'
+            f' · Rate <b>{stat["rate"]}%</b></div>')
+
+
+def habit_row(stat, days, today):
+    kind, target = stat["rule"]
+    rule_label = "daily" if kind == "daily" else f"{target}/wk"
+    star = '<span class="star">★</span>' if stat["priority"] else ""
+    cals = "".join(render_month(stat["name"], stat["color"], month, days, today) for month in (10, 11, 12))
+    return (f'<div class="hrow" style="--c:{stat["color"]}">'
+            f'<div class="hinfo"><div class="hname">{stat["name"]}{star}'
+            f'<span class="hrule">{rule_label}</span></div>{stats_block(stat)}</div>'
+            f'<div class="hcals">{cals}</div></div>')
+
+
+def render_cumulative(stats, elapsed, days):
+    total_checks = sum(stat["done_total"] for stat in stats)
+    perfect = sum(1 for day in elapsed if all(checked(days, day, habit["name"]) for habit in HABITS))
+    best = max(stats, key=lambda stat: stat["rate"])
+    worst = min(stats, key=lambda stat: stat["rate"])
+    tiles = [
+        ("", total_checks, "check-ins logged"),
+        ("", perfect, f"perfect days · all {len(HABITS)}"),
+        (best["color"], f'{best["rate"]}%', f'{best["name"]} · most consistent'),
+        (worst["color"], f'{worst["rate"]}%', f'{worst["name"]} · needs work'),
+    ]
+    return "".join(
+        f'<div class="tile"><div class="big"{f" style=color:{color}" if color else ""}>{value}</div>'
+        f'<div class="lbl">{label}</div></div>'
+        for color, value, label in tiles
+    )
 
 
 def render_notes(days, elapsed):
@@ -280,18 +260,12 @@ def build():
     elapsed = [START + timedelta(days=i) for i in range((last - START).days + 1)] if today >= START else []
 
     stats = habit_stats(days, elapsed, anchor, today)
-    cards = "".join(render_daily(stat) if stat["type"] == "daily" else render_weekly(stat) for stat in stats)
+    rows = "".join(habit_row(stat, days, today) for stat in stats)
 
     day_number = len(elapsed)
     total_days = (END - START).days + 1
     remaining = max(0, (END - today).days)
     progress = round(100 * day_number / total_days)
-
-    today_done = [habit["name"] for habit in HABITS if checked(days, today, habit["name"])]
-    chips = "".join(
-        f'<span class="chip" style="--c:{habit["color"]}{"" if habit["name"] in today_done else ";opacity:.25"}">{habit["name"]}</span>'
-        for habit in HABITS
-    )
 
     page = PAGE_TEMPLATE.format(
         updated=f"{now:%b} {now.day}, {now.year} · {now.hour % 12 or 12}:{now.minute:02d} {'AM' if now.hour < 12 else 'PM'} IST",
@@ -299,9 +273,8 @@ def build():
         total_days=total_days,
         remaining=remaining,
         progress=progress,
-        chips=chips,
-        cards=cards,
-        calendar=render_calendar(days, today, len(HABITS)),
+        cumulative=render_cumulative(stats, elapsed, days),
+        rows=rows,
         notes=render_notes(days, elapsed),
     )
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -323,7 +296,7 @@ body {{
   background: radial-gradient(1200px 600px at 20% -10%, #15203a 0%, #0b0e14 55%) #0b0e14;
   color: #e6e9ef; min-height: 100vh; padding: 40px 20px 60px;
 }}
-.wrap {{ max-width: 960px; margin: 0 auto; }}
+.wrap {{ max-width: 1040px; margin: 0 auto; }}
 header {{ display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 10px; }}
 h1 {{ font-size: 1.9rem; letter-spacing: -.02em; }}
 .updated {{ color: #8b93a7; font-size: .8rem; }}
@@ -332,36 +305,34 @@ h1 {{ font-size: 1.9rem; letter-spacing: -.02em; }}
 .pfill {{ height: 100%; border-radius: 99px; background: linear-gradient(90deg, #ff6b4a, #ffd23f, #4ade80); }}
 .pmeta {{ display: flex; justify-content: space-between; margin-top: 8px; color: #8b93a7; font-size: .85rem; }}
 .pmeta b {{ color: #e6e9ef; }}
-.today {{ margin-bottom: 30px; }}
-.today h2, section h2 {{ font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: #8b93a7; margin-bottom: 12px; }}
-.chips {{ display: flex; flex-wrap: wrap; gap: 8px; }}
-.chip {{ font-size: .85rem; padding: 6px 12px; border-radius: 99px; border: 1px solid var(--c); color: var(--c); }}
-.cards {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; margin-bottom: 36px; }}
-.card {{ background: #141924; border: 1px solid #222a39; border-radius: 16px; padding: 18px; position: relative; overflow: hidden; }}
-.card::before {{ content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--c); }}
-.card.big {{ grid-column: span 2; }}
-.chead {{ display: flex; align-items: center; justify-content: space-between; }}
-.cname {{ font-weight: 600; }}
-.tag {{ font-size: .62rem; text-transform: uppercase; letter-spacing: .08em; color: var(--c); border: 1px solid var(--c); border-radius: 99px; padding: 2px 7px; }}
-.streak {{ font-size: 2.8rem; font-weight: 700; color: var(--c); line-height: 1; margin: 14px 0 4px; display: flex; align-items: baseline; gap: 8px; }}
-.unit {{ font-size: .75rem; font-weight: 500; color: #8b93a7; }}
-.sub {{ display: flex; gap: 14px; flex-wrap: wrap; color: #8b93a7; font-size: .8rem; margin-bottom: 14px; }}
-.sub b {{ color: #e6e9ef; }}
-.strip {{ display: flex; gap: 3px; }}
-.dot {{ width: 100%; height: 14px; border-radius: 3px; }}
-.wkbox {{ width: 100%; height: 14px; border-radius: 3px; }}
-.calendar {{ margin-bottom: 36px; }}
-.months {{ display: flex; flex-wrap: wrap; gap: 26px; }}
-.month .mname {{ font-size: .85rem; color: #8b93a7; margin-bottom: 8px; }}
-.grid {{ display: grid; grid-template-columns: repeat(7, 16px); gap: 4px; }}
-.wdrow {{ display: contents; }}
-.wd {{ font-size: .6rem; color: #5a6274; text-align: center; }}
-.cell {{ width: 16px; height: 16px; border-radius: 4px; }}
-.cell.future {{ border: 1px dashed #2a3344; }}
-.cell.today {{ box-shadow: 0 0 0 2px #e6e9ef; }}
-.pad {{ width: 16px; height: 16px; }}
-.legend {{ display: flex; align-items: center; gap: 6px; margin-top: 14px; color: #8b93a7; font-size: .75rem; }}
-.legend span.box {{ width: 14px; height: 14px; border-radius: 3px; }}
+
+.cum {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }}
+.tile {{ background: #141924; border: 1px solid #222a39; border-radius: 14px; padding: 16px 18px; }}
+.tile .big {{ font-size: 1.9rem; font-weight: 700; line-height: 1; }}
+.tile .lbl {{ color: #8b93a7; font-size: .76rem; margin-top: 6px; }}
+
+.rows {{ margin-top: 10px; }}
+.hrow {{ display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; padding: 20px 0; border-top: 1px solid #1c2330; }}
+.hinfo {{ width: 190px; flex: none; position: relative; padding-left: 14px; }}
+.hinfo::before {{ content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; border-radius: 3px; background: var(--c); }}
+.hname {{ font-weight: 600; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; }}
+.star {{ color: var(--c); font-size: .8rem; }}
+.hrule {{ font-size: .66rem; color: #8b93a7; border: 1px solid #2a3344; border-radius: 99px; padding: 1px 8px; margin-left: auto; }}
+.hbig {{ font-size: 2.3rem; font-weight: 700; color: var(--c); line-height: 1; margin: 12px 0 4px; }}
+.hbig .u {{ font-size: .7rem; font-weight: 500; color: #8b93a7; margin-left: 7px; }}
+.hsub {{ color: #8b93a7; font-size: .78rem; line-height: 1.6; }}
+.hsub b {{ color: #e6e9ef; }}
+
+.hcals {{ display: flex; gap: 20px; flex-wrap: wrap; }}
+.mcal .mlabel {{ font-size: .68rem; color: #5a6274; margin-bottom: 6px; text-transform: uppercase; letter-spacing: .07em; }}
+.mgrid {{ display: grid; grid-template-columns: repeat(7, 13px); gap: 3px; }}
+.mc {{ width: 13px; height: 13px; border-radius: 3px; }}
+.mc.future {{ border: 1px dashed #2a3344; }}
+.mc.today {{ box-shadow: 0 0 0 2px #e6e9ef; }}
+.mpad {{ width: 13px; height: 13px; }}
+
+.notes {{ margin-top: 40px; }}
+.notes h2 {{ font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: #8b93a7; margin-bottom: 12px; }}
 .notes ul {{ list-style: none; display: grid; gap: 8px; }}
 .notes li {{ background: #141924; border: 1px solid #222a39; border-radius: 10px; padding: 10px 14px; font-size: .9rem; }}
 .ndate {{ color: #8b93a7; font-size: .78rem; margin-right: 10px; }}
@@ -379,26 +350,9 @@ h1 {{ font-size: 1.9rem; letter-spacing: -.02em; }}
     <div class="pmeta"><span>Day <b>{day_number}</b> of {total_days}</span><span><b>{remaining}</b> days left</span></div>
   </div>
 
-  <div class="today">
-    <h2>Today</h2>
-    <div class="chips">{chips}</div>
-  </div>
+  <div class="cum">{cumulative}</div>
 
-  <div class="cards">{cards}</div>
-
-  <section class="calendar">
-    <h2>Habits completed per day</h2>
-    <div class="months">{calendar}</div>
-    <div class="legend">
-      <span>fewer</span>
-      <span class="box" style="background:#1b2130"></span>
-      <span class="box" style="background:#166534"></span>
-      <span class="box" style="background:#15803d"></span>
-      <span class="box" style="background:#22c55e"></span>
-      <span class="box" style="background:#4ade80"></span>
-      <span>more</span>
-    </div>
-  </section>
+  <div class="rows">{rows}</div>
 
   {notes}
 </div>
