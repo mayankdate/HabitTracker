@@ -1,7 +1,13 @@
 """Build the habit-challenge dashboard page (docs/index.html).
 
-Fetches every day from the Notion database, computes per-habit streaks and
-rates, and writes a self-contained static page. No secrets reach the page.
+Fetches every day from the Notion database, applies each habit's own completion
+rule, and writes a self-contained static page. No secrets reach the page.
+
+Each habit has a rule, edit these freely:
+  ("daily",  None)  -> must be done every day; streak counts in days.
+  ("weekly", N)     -> N days within each Mon-Sun week; streak counts in weeks.
+Partial first/last weeks have their target prorated so a short edge week isn't
+an automatic miss. The in-progress day or week never breaks a streak.
 
 Token: env var NOTION_TOKEN (used by GitHub Actions), otherwise the local file
 notion_habit_tracker_token.txt in the project root.
@@ -21,13 +27,14 @@ TIMEZONE = timezone(timedelta(hours=5, minutes=30))  # IST, fixed offset, no DST
 START = date(2026, 10, 1)
 END = date(2026, 12, 31)
 
-# name, color, is_priority
+# name, color, priority (featured wide), rule
 HABITS = [
-    ("Gym", "#ff6b4a", True),
-    ("No Sugar", "#ffd23f", True),
-    ("Good Diet", "#4ade80", False),
-    ("Water", "#38bdf8", False),
-    ("Jaw Line", "#a78bfa", False),
+    {"name": "Gym",       "color": "#ff6b4a", "priority": True,  "rule": ("weekly", 5)},
+    {"name": "No Sugar",  "color": "#ffd23f", "priority": True,  "rule": ("weekly", 6)},
+    {"name": "Good Diet", "color": "#4ade80", "priority": False, "rule": ("weekly", 5)},
+    {"name": "Water",     "color": "#38bdf8", "priority": False, "rule": ("daily",  None)},
+    {"name": "Abs",       "color": "#f472b6", "priority": False, "rule": ("weekly", 4)},
+    {"name": "Jaw Line",  "color": "#a78bfa", "priority": False, "rule": ("weekly", 4)},
 ]
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -77,11 +84,15 @@ def fetch_days(token):
             note = "".join(part["plain_text"] for part in props["Notes"]["rich_text"])
             days[day] = {
                 "note": note,
-                "habits": {name: props[name]["checkbox"] for name, _, _ in HABITS},
+                "habits": {habit["name"]: props[habit["name"]]["checkbox"] for habit in HABITS},
             }
         if not response["has_more"]:
             return days
         cursor = response["next_cursor"]
+
+
+def checked(days, day, name):
+    return bool(days.get(day, {}).get("habits", {}).get(name))
 
 
 def current_streak(done, anchor):
@@ -101,47 +112,101 @@ def longest_streak(done, elapsed):
     return best
 
 
-def habit_stats(days, elapsed, anchor):
+def daily_stats(days, name, elapsed, anchor):
+    done = {day for day in elapsed if checked(days, day, name)}
+    return {
+        "type": "daily",
+        "current": current_streak(done, anchor),
+        "longest": longest_streak(done, elapsed),
+        "done": len(done),
+        "rate": round(100 * len(done) / len(elapsed)) if elapsed else 0,
+        "strip": [(day, day in done) for day in elapsed[-14:]],
+    }
+
+
+def weekly_stats(days, name, target, today):
+    weeks = []
+    week_start = START - timedelta(days=START.weekday())  # Monday on/before Oct 1
+    while week_start <= END:
+        week_end = week_start + timedelta(days=6)
+        in_challenge = [week_start + timedelta(days=i) for i in range(7)
+                        if START <= week_start + timedelta(days=i) <= END]
+        if in_challenge and week_start <= today:
+            target_eff = max(1, round(target * len(in_challenge) / 7))
+            done = sum(1 for day in in_challenge if day <= today and checked(days, day, name))
+            if week_end < today:
+                status = "met" if done >= target_eff else "missed"
+            else:
+                status = "met" if done >= target_eff else "current"
+            weeks.append({"start": week_start, "end": week_end, "done": done,
+                          "target": target_eff, "status": status,
+                          "current": week_start <= today <= week_end})
+        week_start += timedelta(days=7)
+
+    current = 0
+    for week in reversed(weeks):
+        if week["status"] == "met":
+            current += 1
+        elif week["status"] == "current":
+            continue
+        else:
+            break
+
+    best = run = 0
+    for week in weeks:
+        if week["status"] == "met":
+            run += 1
+            best = max(best, run)
+        elif week["status"] != "current":
+            run = 0
+
+    this = next((week for week in weeks if week["current"]), None)
+    finished = [week for week in weeks if not week["current"]]
+    days_left = max(0, (min(this["end"], END) - today).days) if this else 0
+    return {
+        "type": "weekly",
+        "current": current,
+        "longest": best,
+        "this_done": this["done"] if this else 0,
+        "this_target": this["target"] if this else target,
+        "days_left": days_left,
+        "weeks_met": sum(1 for week in finished if week["status"] == "met"),
+        "weeks_total": len(finished),
+        "recent": [week["status"] for week in weeks[-8:]],
+    }
+
+
+def habit_stats(days, elapsed, anchor, today):
     stats = []
-    for name, color, priority in HABITS:
-        done = {day for day in elapsed if days.get(day, {}).get("habits", {}).get(name)}
-        strip = [(day, day in done) for day in elapsed[-14:]]
-        stats.append({
-            "name": name,
-            "color": color,
-            "priority": priority,
-            "done": len(done),
-            "rate": round(100 * len(done) / len(elapsed)) if elapsed else 0,
-            "current": current_streak(done, anchor),
-            "longest": longest_streak(done, elapsed),
-            "strip": strip,
-        })
+    for habit in HABITS:
+        kind, target = habit["rule"]
+        data = (daily_stats(days, habit["name"], elapsed, anchor) if kind == "daily"
+                else weekly_stats(days, habit["name"], target, today))
+        stats.append({**habit, **data})
     return stats
 
 
-def count_color(count, is_future):
+def count_color(count, total, is_future):
     if is_future:
         return "transparent"
-    return ["#1b2130", "#14532d", "#166534", "#15803d", "#22c55e", "#4ade80"][count]
+    if count == 0:
+        return "#1b2130"
+    shades = ["#14532d", "#166534", "#15803d", "#22c55e", "#4ade80"]
+    return shades[min(len(shades) - 1, round(count / total * (len(shades) - 1)))]
 
 
-def render_calendar(days, today):
+def render_calendar(days, today, total):
     blocks = []
     for month in (10, 11, 12):
         first = date(2026, month, 1)
-        total = calendar.monthrange(2026, month)[1]
         cells = ['<span class="pad"></span>'] * first.weekday()
-        for number in range(1, total + 1):
+        for number in range(1, calendar.monthrange(2026, month)[1] + 1):
             day = date(2026, month, number)
-            done = [name for name, _, _ in HABITS if days.get(day, {}).get("habits", {}).get(name)]
+            done = [habit["name"] for habit in HABITS if checked(days, day, habit["name"])]
             is_future = day > today
-            classes = "cell"
-            if day == today:
-                classes += " today"
-            if is_future:
-                classes += " future"
+            classes = "cell" + (" today" if day == today else "") + (" future" if is_future else "")
             tip = f"{day.isoformat()} · {', '.join(done) if done else 'none'}"
-            style = f"background:{count_color(len(done), is_future)}"
+            style = f"background:{count_color(len(done), total, is_future)}"
             cells.append(f'<span class="{classes}" style="{style}" title="{html.escape(tip)}"></span>')
         weekdays = "".join(f'<span class="wd">{d}</span>' for d in "MTWTFSS")
         blocks.append(
@@ -151,23 +216,46 @@ def render_calendar(days, today):
     return "".join(blocks)
 
 
-def render_habit(stat):
-    cells = "".join(
-        f'<span class="dot" style="{"background:" + stat["color"] if done else "background:#232a39"}" '
+def card_shell(stat, inner):
+    tag = '<span class="tag">priority</span>' if stat["priority"] else ""
+    big = " big" if stat["priority"] else ""
+    return (f'<div class="card{big}" style="--c:{stat["color"]}">'
+            f'<div class="chead"><span class="cname">{stat["name"]}</span>{tag}</div>'
+            f'{inner}</div>')
+
+
+def render_daily(stat):
+    dots = "".join(
+        f'<span class="dot" style="background:{stat["color"] if done else "#232a39"}" '
         f'title="{day.isoformat()}"></span>'
         for day, done in stat["strip"]
     )
-    tag = '<span class="tag">priority</span>' if stat["priority"] else ""
-    return f"""<div class="card{' big' if stat['priority'] else ''}" style="--c:{stat['color']}">
-  <div class="chead"><span class="cname">{stat['name']}</span>{tag}</div>
-  <div class="streak">{stat['current']}<span class="unit">day streak</span></div>
-  <div class="sub">
-    <span>Longest <b>{stat['longest']}</b></span>
-    <span>Done <b>{stat['done']}</b></span>
-    <span>Rate <b>{stat['rate']}%</b></span>
-  </div>
-  <div class="strip" title="last 14 days">{cells}</div>
-</div>"""
+    inner = (f'<div class="streak">{stat["current"]}<span class="unit">day streak</span></div>'
+             f'<div class="sub"><span>Longest <b>{stat["longest"]}</b></span>'
+             f'<span>Done <b>{stat["done"]}</b></span>'
+             f'<span>Rate <b>{stat["rate"]}%</b></span></div>'
+             f'<div class="strip">{dots}</div>')
+    return card_shell(stat, inner)
+
+
+def render_weekly(stat):
+    boxes = []
+    for status in stat["recent"]:
+        if status == "met":
+            style = f"background:{stat['color']}"
+        elif status == "current":
+            style = "background:transparent;border:1px dashed #4a5568"
+        else:
+            style = "background:#2a3344"
+        boxes.append(f'<span class="wkbox" style="{style}"></span>')
+    this = f'{stat["this_done"]}/{stat["this_target"]}'
+    left = f' · {stat["days_left"]}d left' if stat["days_left"] else ""
+    inner = (f'<div class="streak">{stat["current"]}<span class="unit">week streak</span></div>'
+             f'<div class="sub"><span>This week <b>{this}</b>{left}</span>'
+             f'<span>Longest <b>{stat["longest"]}w</b></span>'
+             f'<span>Weeks met <b>{stat["weeks_met"]}/{stat["weeks_total"]}</b></span></div>'
+             f'<div class="strip">{"".join(boxes)}</div>')
+    return card_shell(stat, inner)
 
 
 def render_notes(days, elapsed):
@@ -191,17 +279,18 @@ def build():
     last = min(today, END)
     elapsed = [START + timedelta(days=i) for i in range((last - START).days + 1)] if today >= START else []
 
-    stats = habit_stats(days, elapsed, anchor)
+    stats = habit_stats(days, elapsed, anchor, today)
+    cards = "".join(render_daily(stat) if stat["type"] == "daily" else render_weekly(stat) for stat in stats)
+
     day_number = len(elapsed)
     total_days = (END - START).days + 1
     remaining = max(0, (END - today).days)
     progress = round(100 * day_number / total_days)
 
-    cards = "".join(render_habit(stat) for stat in stats)
-    today_done = [name for name, _, _ in HABITS if days.get(today, {}).get("habits", {}).get(name)]
+    today_done = [habit["name"] for habit in HABITS if checked(days, today, habit["name"])]
     chips = "".join(
-        f'<span class="chip" style="--c:{color}{";opacity:.25" if name not in today_done else ""}">{name}</span>'
-        for name, color, _ in HABITS
+        f'<span class="chip" style="--c:{habit["color"]}{"" if habit["name"] in today_done else ";opacity:.25"}">{habit["name"]}</span>'
+        for habit in HABITS
     )
 
     page = PAGE_TEMPLATE.format(
@@ -212,7 +301,7 @@ def build():
         progress=progress,
         chips=chips,
         cards=cards,
-        calendar=render_calendar(days, today),
+        calendar=render_calendar(days, today, len(HABITS)),
         notes=render_notes(days, elapsed),
     )
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -260,6 +349,7 @@ h1 {{ font-size: 1.9rem; letter-spacing: -.02em; }}
 .sub b {{ color: #e6e9ef; }}
 .strip {{ display: flex; gap: 3px; }}
 .dot {{ width: 100%; height: 14px; border-radius: 3px; }}
+.wkbox {{ width: 100%; height: 14px; border-radius: 3px; }}
 .calendar {{ margin-bottom: 36px; }}
 .months {{ display: flex; flex-wrap: wrap; gap: 26px; }}
 .month .mname {{ font-size: .85rem; color: #8b93a7; margin-bottom: 8px; }}

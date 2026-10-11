@@ -7,9 +7,27 @@ motivator. A GitHub Action rebuilds and recommits the page twice every morning.
 
 ## Habits tracked
 
-Gym, No Sugar, Good Diet, Water, Jaw Line — each tracked independently with its
-own streak and rate. Gym and No Sugar are featured as priority habits. There is
-no combined score.
+Six habits, each with its own completion rule (no combined score). Gym and No
+Sugar are featured as priority habits.
+
+| Habit | Rule | Streak unit |
+|-------|------|-------------|
+| Gym | 5 days / week | weeks |
+| No Sugar | 6 days / week | weeks |
+| Good Diet | 5 days / week | weeks |
+| Water | every day | days |
+| Abs | 4 days / week | weeks |
+| Jaw Line | 4 days / week | weeks |
+
+A **daily** habit must be done every day; its streak counts in days. A **weekly**
+habit needs N days within each Mon–Sun week; its streak counts in weeks and the
+card shows this week's progress (e.g. `4/5`). The in-progress day or week never
+breaks a streak — it stays pending until it actually falls short. Partial first
+and last weeks have their target prorated so a short edge week isn't an automatic
+miss.
+
+The rules live in an editable `HABITS` block at the top of
+`scripts/build_dashboard.py` — change any target there without touching logic.
 
 ## Project layout
 
