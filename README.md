@@ -7,7 +7,7 @@ motivator. A GitHub Action rebuilds and recommits the page twice every morning.
 
 ## Habits tracked
 
-Six habits, each with its own completion rule (no combined score). Gym and No
+Five habits, each with its own completion rule (no combined score). Gym and No
 Sugar are featured as priority habits.
 
 | Habit | Rule | Streak unit |
@@ -15,7 +15,6 @@ Sugar are featured as priority habits.
 | Gym | 5 days / week | weeks |
 | No Sugar | 6 days / week | weeks |
 | Good Diet | 5 days / week | weeks |
-| Water | every day | days |
 | Abs | 4 days / week | weeks |
 | Jaw Line | 4 days / week | weeks |
 
