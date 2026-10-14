@@ -35,7 +35,6 @@ HABITS = [
     {"name": "Gym",       "color": "#ff6b4a", "priority": True,  "rule": ("weekly", 5)},
     {"name": "No Sugar",  "color": "#ffd23f", "priority": True,  "rule": ("weekly", 6)},
     {"name": "Good Diet", "color": "#4ade80", "priority": False, "rule": ("weekly", 5)},
-    {"name": "Water",     "color": "#38bdf8", "priority": False, "rule": ("daily",  None)},
     {"name": "Abs",       "color": "#f472b6", "priority": False, "rule": ("weekly", 4)},
     {"name": "Jaw Line",  "color": "#a78bfa", "priority": False, "rule": ("weekly", 4)},
 ]
