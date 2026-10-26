@@ -15,7 +15,9 @@ HabitTracker/
 │   └── inspect_notion.py     ← diagnostic: prints raw Notion database schema
 ├── docs/
 │   └── index.html            ← GENERATED — do not edit by hand
-├── requirements.txt
+├── pyproject.toml            ← Python version + packages (uv); none beyond the stdlib today
+├── uv.lock
+├── .python-version
 └── .gitignore
 ```
 
@@ -36,17 +38,17 @@ repository root (gitignored). Neither should ever be committed.
 ## Commands
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (none beyond the stdlib today; add with `uv add <pkg>`)
+uv sync
 
 # Regenerate the dashboard
-python scripts/build_dashboard.py
+uv run python scripts/build_dashboard.py
 
 # Inspect the raw Notion database schema
-python scripts/inspect_notion.py
+uv run python scripts/inspect_notion.py
 
 # Serve locally
-python -m http.server 8000 --directory docs
+uv run python -m http.server 8000 --directory docs
 ```
 
 ## Change guidelines

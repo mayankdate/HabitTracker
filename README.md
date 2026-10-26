@@ -38,7 +38,8 @@ HabitTracker/
 │   ├── build_dashboard.py            Fetches Notion, writes docs/index.html
 │   └── inspect_notion.py             Diagnostic: prints a database's columns
 ├── notion_habit_tracker_token.txt    Local token (gitignored, never pushed)
-├── requirements.txt
+├── pyproject.toml                    Python version + packages (managed with uv)
+├── uv.lock                           Exact versions; commit with pyproject.toml
 └── README.md
 ```
 
@@ -78,8 +79,11 @@ second catches a missed first.
 ## Running locally
 
 ```
-python scripts/build_dashboard.py
+uv run python scripts/build_dashboard.py
 ```
+
+([uv](https://docs.astral.sh/uv/) picks the Python version from `.python-version`
+and installs it if needed. The script uses only the standard library.)
 
 Reads the token from the `NOTION_TOKEN` environment variable, or from
 `notion_habit_tracker_token.txt` in the project root. Writes `docs/index.html`,
@@ -88,7 +92,7 @@ which you can open in a browser.
 To check the database's columns (e.g. after changing the schema):
 
 ```
-python scripts/inspect_notion.py
+uv run python scripts/inspect_notion.py
 ```
 
 ## Notes
