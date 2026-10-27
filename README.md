@@ -31,7 +31,7 @@ The rules live in an editable `HABITS` block at the top of
 ## Project layout
 
 ```
-HabitTracker/
+habit-tracker/
 ├── .github/workflows/dashboard.yml   Scheduled build + commit
 ├── docs/index.html                   The published page (generated)
 ├── scripts/
@@ -60,7 +60,7 @@ zero, it counts the run ending yesterday until you check in.
    same value that's in `notion_habit_tracker_token.txt`.
 2. **Enable Pages.** Settings → Pages → Source: Deploy from a branch →
    Branch `main`, folder `/docs`. The site will be at
-   `https://<username>.github.io/HabitTracker/`.
+   `https://<username>.github.io/habit-tracker/`.
 3. **First build.** Actions → "Build habit dashboard" → Run workflow. (Or run
    it locally once and commit the generated `docs/index.html`.)
 
